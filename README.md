@@ -18,6 +18,23 @@ uv sync --group dev
 HF_TOKEN=hf_... uv run whispermlx-server --port 8081
 ```
 
+`serve` is the default subcommand; flags work the same way:
+
+```bash
+uv run whispermlx-server serve --port 8081
+```
+
+## Download models
+
+Pre-download MLX weights from Hugging Face Hub (same repos whispermlx uses):
+
+```bash
+uv run whispermlx-server download large-v3
+uv run whispermlx-server download --list
+```
+
+Aliases: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `turbo`.
+
 ## API
 
 - `GET /` — health check

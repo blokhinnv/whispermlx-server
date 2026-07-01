@@ -1,0 +1,99 @@
+---
+description: Python 3.12 — uv, типы, mypy/ruff, pathlib, match/case, dataclasses, loguru, pyyaml, PEP8 88
+globs: "*.py"
+alwaysApply: false
+---
+
+# Python 3.12 — стандарты проекта
+
+- **Версия**: только Python 3.12 (см. `pyproject.toml`: `>=3.12,<3.13`).
+- **uv**: менеджер пакетов и окружения — запускаем скрипты и добавляем пакеты только через **uv** (`uv run`, `uv add`). После добавления нового пакета для контроля вызывать `uv sync`.
+- **Типы**: современные аннотации — `list[str]`, `dict[str, int]`, `tuple[int, str]` (PEP 585). Для сложных типов — `TypeAlias`; при переопределении методов — `@override`; для методов, возвращающих `self`, — `Self` (из `typing`).
+- **Инструменты**: после любого изменения в `.py` запускать **ruff** (format + lint) и **mypy**. Если mypy выдаёт ошибки — всегда пытаться их исправить, не отключать проверки. Перед коммитом: `ruff check .`, `ruff format .`, `mypy` по изменённым файлам.
+- **Пути**: только **pathlib** (`Path`, `Pathlike`), не `os.path` и не конкатенация строк.
+- **Управляющий поток**: где уместно — **match/case** вместо длинных цепочек `if/elif`.
+- **Данные**: современные **dataclasses** — `frozen`, `kw_only`, `slots` при необходимости.
+- **Стиль**: PEP8, макс. длина строки **88** символов. Импорты — по стилю ruff (правила `I`). Импорты только в начале файла: никогда не импортировать внутри функций и методов. В базовом коде Python 3.12 не добавлять `from __future__ import annotations` (и другие future-annotations) без явной необходимости совместимости.
+- **Исключения**: не использовать голый `except:` — всегда тип (`except ValueError:`, `except OSError:`). Для общего перехвата — `except Exception as e:` и логировать/пробрасывать осознанно.
+- **Логирование**: **loguru** (`from loguru import logger`). Стандартный `logging` не использовать.
+- **YAML**: для работы с YAML используем **PyYAML** (пакет `pyyaml`).
+- **Docstring функций**: использовать стиль **Google**. В `Args` не указывать типы аргументов (типы уже заданы в аннотациях функции). Описывать смысл параметра, а не повторять сигнатуру. Для функций с возможными ошибками добавлять `Raises`.
+- **Агенты и LLM**: при разработке агентных сценариев и интеграций с LLM используем **LangChain**; на этапе разработки и быстрого доступа к моделям используем **OpenRouter API**.
+- **Контракты вместо «защиты от всего»**: не добавлять лишние ветки, fallback’и и проверки «на всякий случай», если нет жёсткого основания (контракт внешнего API, измеренный сбой в проде, тест). Не маскировать баги дефолтами. Предпочитать явные типы (`Protocol`, модели) и **прямой доступ к атрибутам**; **минимизировать `getattr` и `hasattr`**. Допустимы только у границы с нетипизированным внешним кодом и с кратким комментарием, зачем это нужно.
+
+## Примеры
+
+**Типы:**
+```python
+def process(items: list[str]) -> dict[str, int]:
+    ...
+```
+
+**Пути:**
+```python
+from pathlib import Path
+path = Path(__file__).resolve().parent
+```
+
+**match/case:**
+```python
+match status:
+    case "ok":
+        return result
+    case "error" | "fail":
+        raise ProcessError(msg)
+    case _:
+        raise ValueError(f"Unknown status: {status}")
+```
+
+**Исключения:**
+```python
+# OK
+except ValueError:
+except OSError as e:
+except Exception as e:
+    logger.exception("Unexpected error")
+    raise
+
+# Плохо
+except:
+```
+
+**dataclass:**
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True, kw_only=True)
+class Config:
+    host: str
+    port: int
+```
+
+**Логирование:**
+```python
+from loguru import logger
+logger.info("Done")
+logger.exception("Failed")  # с трассировкой
+```
+
+**Docstring (Google style, без типов в Args):**
+```python
+def search_documents(
+    query: str,
+    top_k: int = 5,
+    filters: dict[str, str] | None = None,
+) -> list[Document]:
+    """Ищет документы по семантическому сходству с запросом.
+
+    Args:
+        query: Поисковый запрос на естественном языке.
+        top_k: Максимальное количество возвращаемых документов.
+        filters: Метаданные для фильтрации, например {"source": "wiki"}.
+
+    Returns:
+        Список документов, отсортированных по релевантности.
+
+    Raises:
+        VectorStoreError: Если индекс недоступен.
+    """
+```

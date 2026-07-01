@@ -140,6 +140,7 @@ def run_inference_sync(
         _run_subprocess(argv)
         result = _read_result_json(output_dir, audio_path)
         text = extract_text(result)
+        print("text", text)
         return InferenceResponse(text=text)
 
 
