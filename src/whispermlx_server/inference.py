@@ -17,6 +17,31 @@ class InferenceError(Exception):
     """Raised when whispermlx subprocess fails or output is unusable."""
 
 
+def _format_argv(argv: list[str]) -> str:
+    """Join argv for logs; redact secrets."""
+    redacted = list(argv)
+    try:
+        token_idx = redacted.index("--hf_token")
+        if token_idx + 1 < len(redacted):
+            redacted[token_idx + 1] = "***"
+    except ValueError:
+        pass
+    return " ".join(redacted)
+
+
+def _log_inference_request(request: InferenceRequest) -> None:
+    logger.info(
+        "Inference start: file_path={!r} model={!r} language={!r} "
+        "diarize={} hotwords={!r} initial_prompt={!r}",
+        request.file_path,
+        request.model,
+        request.language,
+        request.diarize_enabled(),
+        request.hotwords,
+        request.effective_initial_prompt(),
+    )
+
+
 def extract_text(result: dict[str, object]) -> str:
     """Build plain transcript text from whispermlx JSON segments."""
     segments = result.get("segments")
@@ -88,7 +113,8 @@ def build_argv(
 
 def _run_subprocess(argv: list[str]) -> None:
     """Run whispermlx CLI synchronously."""
-    logger.info("Running whispermlx: {}", " ".join(argv))
+    argv_log = _format_argv(argv)
+    logger.info("Running whispermlx: {}", argv_log)
     try:
         completed = subprocess.run(
             argv,
@@ -100,9 +126,14 @@ def _run_subprocess(argv: list[str]) -> None:
         stderr = exc.stderr.strip() if exc.stderr else ""
         stdout = exc.stdout.strip() if exc.stdout else ""
         logger.error(
-            "whispermlx failed (exit {}): {}", exc.returncode, stderr or stdout
+            "whispermlx failed: exit_code={} argv={} stdout={!r} stderr={!r}",
+            exc.returncode,
+            argv_log,
+            stdout or "(empty)",
+            stderr or "(empty)",
         )
-        msg = f"whispermlx exited with code {exc.returncode}"
+        detail = stderr or stdout or "(no output)"
+        msg = f"whispermlx exited with code {exc.returncode}: {detail}"
         raise InferenceError(msg) from exc
 
     if completed.stderr.strip():
@@ -114,12 +145,14 @@ def _read_result_json(output_dir: Path, audio_path: Path) -> dict[str, object]:
     result_path = output_dir / f"{stem}.json"
     if not result_path.is_file():
         msg = f"whispermlx output not found: {result_path}"
+        logger.error("Inference postprocess failed: {}", msg)
         raise InferenceError(msg)
 
     with result_path.open(encoding="utf-8") as handle:
         loaded = json.load(handle)
     if not isinstance(loaded, dict):
         msg = "whispermlx output JSON is not an object"
+        logger.error("Inference postprocess failed: loaded={!r}", loaded)
         raise InferenceError(msg)
     return loaded
 
@@ -129,9 +162,11 @@ def run_inference_sync(
     settings: Settings,
 ) -> InferenceResponse:
     """Run whispermlx subprocess and return transcript text."""
+    _log_inference_request(request)
     audio_path = Path(request.file_path)
     if not audio_path.is_file():
         msg = f"file not found: {audio_path}"
+        logger.error("Inference precheck failed: {}", msg)
         raise InferenceError(msg)
 
     with tempfile.TemporaryDirectory(prefix="whispermlx-server-") as tmp:

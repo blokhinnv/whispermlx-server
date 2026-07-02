@@ -19,11 +19,34 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.exception_handler(InferenceError)
     async def inference_error_handler(
-        _request: Request,
+        request: Request,
         exc: InferenceError,
     ) -> JSONResponse:
-        logger.error("Inference failed: {}", exc)
+        client = request.client.host if request.client else "unknown"
+        logger.exception(
+            "Inference failed: client={} {} {} — {}",
+            client,
+            request.method,
+            request.url.path,
+            exc,
+        )
         body = ErrorResponse(detail=str(exc))
+        return JSONResponse(status_code=500, content=body.model_dump())
+
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        client = request.client.host if request.client else "unknown"
+        logger.exception(
+            "Unhandled server error: client={} {} {} — {}",
+            client,
+            request.method,
+            request.url.path,
+            exc,
+        )
+        body = ErrorResponse(detail="Internal server error")
         return JSONResponse(status_code=500, content=body.model_dump())
 
     @app.get("/")

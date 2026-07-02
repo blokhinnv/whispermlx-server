@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 
 import uvicorn
@@ -7,6 +8,37 @@ from loguru import logger
 from whispermlx_server.app import create_app
 from whispermlx_server.config import Settings
 from whispermlx_server.download import download_model, list_models
+
+
+class _InterceptHandler(logging.Handler):
+    """Route stdlib logging (uvicorn, etc.) through loguru."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        level: str | int
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
+
+
+def configure_logging() -> None:
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="DEBUG",
+        format=(
+            "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+            "{name}:{function}:{line} | {message}"
+        ),
+        backtrace=True,
+        diagnose=True,
+    )
+    logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        log = logging.getLogger(name)
+        log.handlers = []
+        log.propagate = True
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,9 +81,16 @@ def run_serve(args: argparse.Namespace) -> None:
         port=args.port,
         hf_token=args.hf_token,
     )
+    configure_logging()
     logger.info("Starting whispermlx-server on {}:{}", settings.host, settings.port)
     app = create_app(settings)
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level="debug",
+        log_config=None,
+    )
 
 
 def run_download(args: argparse.Namespace) -> None:
