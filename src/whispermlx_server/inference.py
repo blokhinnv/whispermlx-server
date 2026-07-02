@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,18 @@ _inference_lock = asyncio.Lock()
 
 class InferenceError(Exception):
     """Raised when whispermlx subprocess fails or output is unusable."""
+
+
+def _subprocess_env() -> dict[str, str]:
+    """Child env with common macOS bin dirs prepended to PATH."""
+    env = os.environ.copy()
+    # ponytail: GUI-launched servers often lack Homebrew in PATH
+    extra = ":".join(
+        d for d in ("/opt/homebrew/bin", "/usr/local/bin") if os.path.isdir(d)
+    )
+    if extra:
+        env["PATH"] = f"{extra}:{env.get('PATH', '')}"
+    return env
 
 
 def _format_argv(argv: list[str]) -> str:
@@ -121,6 +134,7 @@ def _run_subprocess(argv: list[str]) -> None:
             check=True,
             capture_output=True,
             text=True,
+            env=_subprocess_env(),
         )
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.strip() if exc.stderr else ""
@@ -175,7 +189,6 @@ def run_inference_sync(
         _run_subprocess(argv)
         result = _read_result_json(output_dir, audio_path)
         text = extract_text(result)
-        print("text", text)
         return InferenceResponse(text=text)
 
 

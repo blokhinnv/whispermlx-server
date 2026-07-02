@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ import pytest
 from whispermlx_server.config import Settings
 from whispermlx_server.inference import (
     InferenceError,
+    _subprocess_env,
     build_argv,
     extract_text,
     run_inference_sync,
@@ -27,6 +29,13 @@ PLAIN_RESULT = {
     ],
     "language": "en",
 }
+
+
+def test_subprocess_env_prepends_homebrew_bins() -> None:
+    with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
+        with patch("whispermlx_server.inference.os.path.isdir", return_value=True):
+            env = _subprocess_env()
+    assert env["PATH"].startswith("/opt/homebrew/bin:/usr/local/bin:/usr/bin")
 
 
 def test_extract_text_with_speakers() -> None:
@@ -129,6 +138,9 @@ def test_run_inference_sync(tmp_path: Path) -> None:
     settings = Settings()
 
     def fake_run(argv: list[str], **kwargs: object) -> object:
+        env = kwargs.get("env")
+        assert isinstance(env, dict)
+        assert "PATH" in env
         output_dir = Path(argv[argv.index("--output_dir") + 1])
         result_path = output_dir / "meeting.json"
         result_path.write_text(json.dumps(SAMPLE_RESULT), encoding="utf-8")
